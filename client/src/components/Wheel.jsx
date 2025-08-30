@@ -1,104 +1,146 @@
 import React, { useRef, useState, useEffect } from 'react';
-import axios from 'axios';
 
-function Wheel({ segments }) {
+const segmentsCount = 70;
+const colors = Array.from({ length: segmentsCount }, (_, i) => `hsl(${(i * 360) / segmentsCount}, 85%, 60%)`);
+const segments = Array.from({ length: segmentsCount }, (_, i) => (i + 1).toString());
+
+function Wheel({ assignedNumber, onSpinComplete }) {
   const canvasRef = useRef(null);
   const [angle, setAngle] = useState(0);
-  const [result, setResult] = useState('');
+  const [isSpinning, setIsSpinning] = useState(false);
+  const [result, setResult] = useState(null);
 
+  // Draw the wheel
   const drawWheel = () => {
     const canvas = canvasRef.current;
-    if (canvas && segments.length > 0) {
-      const ctx = canvas.getContext('2d');
-      const width = canvas.width;
-      const height = canvas.height;
-      const radius = width / 2;
-      const anglePerSegment = (2 * Math.PI) / segments.length;
+    if (!canvas) return;
+    const ctx = canvas.getContext('2d');
+    const width = canvas.width;
+    const radius = width / 2;
+    const anglePerSegment = (2 * Math.PI) / segmentsCount;
 
-      ctx.clearRect(0, 0, width, height);
+    ctx.clearRect(0, 0, width, width);
 
-      segments.forEach((segment, index) => {
-        const startAngle = index * anglePerSegment;
-        const endAngle = (index + 1) * anglePerSegment;
+    for (let i = 0; i < segmentsCount; i++) {
+      const startAngle = i * anglePerSegment;
+      const endAngle = (i + 1) * anglePerSegment;
+      ctx.beginPath();
+      ctx.moveTo(radius, radius);
+      ctx.arc(radius, radius, radius, startAngle, endAngle);
+      ctx.fillStyle = colors[i];
+      ctx.fill();
+      ctx.strokeStyle = '#ffffffff';
+      ctx.stroke();
 
-        ctx.beginPath();
-        ctx.moveTo(radius, radius);
-        ctx.arc(radius, radius, radius, startAngle, endAngle);
-        ctx.fillStyle = `hsl(${(index * 360) / segments.length}, 70%, 50%)`;
-        ctx.fill();
-        ctx.stroke();
-
-        ctx.save();
-        ctx.translate(radius, radius);
-        ctx.rotate(startAngle + anglePerSegment / 2);
-        ctx.textAlign = 'right';
-        ctx.fillStyle = 'white';
-        ctx.font = 'bold 18px Arial';
-        ctx.fillText(segment, radius - 10, 10);
-        ctx.restore();
-      });
+      ctx.save();
+      ctx.translate(radius, radius);
+      ctx.rotate(startAngle + anglePerSegment / 2);
+      ctx.textAlign = 'right';
+      ctx.fillStyle = '#040303ff';
+      ctx.font = `${Math.max(10, Math.floor(width * 0.03))}px Arial`;
+      ctx.fillText(i + 1, radius - 10, 7);
+      ctx.restore();
     }
   };
 
-  const spinWheel = () => {
-    setResult(''); // Reset result when the wheel starts spinning
-    const numSegments = segments.length;
-    const randomAngle = Math.random() * 360 + 360 * numSegments; // Ensure at least numSegments full rotations
-    setAngle((prev) => prev + randomAngle);
-  };
+  useEffect(drawWheel, [angle]);
 
+  useEffect(() => {
+    if (!assignedNumber) return;
+    setIsSpinning(true);
+    setResult(null);
 
-  const calculateResult = () => {
-    if (segments.length > 0) {
-      const totalAngle = (angle % 360 + 360) % 360; // Ensure the angle is between 0 and 360
-      const anglePerSegment = 360 / segments.length;
-      const winningIndex = Math.floor(totalAngle / anglePerSegment);
-      const winningSegment = (segments.length - winningIndex) % segments.length;
-      const correctedWinningSegment = (winningSegment + segments.length - 1) % segments.length; // Adjust for pointer position
-      setResult(segments[correctedWinningSegment]);
-  
-      // Save to database
-      axios.post('/api/save', {
-        segments: JSON.stringify(segments), // Convert segments to a string if necessary
-        result: segments[correctedWinningSegment],
-      }).then(response => {
-        console.log('Data saved:', response.data);
-      }).catch(error => {
-        console.error('Error saving data:', error);
-      });
+    // Math for TOP pointer (12 o’clock, correction = 270)
+    const anglePerSegment = 360 / segmentsCount;
+    const pointerCorrection = 270;
+    const spins = 7;
+    const targetIndex = assignedNumber - 1;
+    const targetAngle =
+      spins * 360 +
+      ((segmentsCount - targetIndex) * anglePerSegment) -
+      anglePerSegment / 2 +
+      pointerCorrection;
+
+    let animationFrame;
+    const duration = 4000;
+    const start = performance.now();
+
+    function easeOut(t, b, c, d) {
+      t /= d;
+      t--;
+      return c * (t * t * t + 1) + b;
     }
-  };
-  
- 
 
-  useEffect(() => {
-    drawWheel();
-  }, [segments]);
+    function animate(now) {
+      const elapsed = now - start;
+      if (elapsed < duration) {
+        const eased = easeOut(elapsed, 0, targetAngle, duration);
+        setAngle(eased % 360);
+        animationFrame = requestAnimationFrame(animate);
+      } else {
+        setAngle(targetAngle % 360);
+        setIsSpinning(false);
+        setResult(assignedNumber);
+        if (typeof onSpinComplete === 'function') onSpinComplete();
+      }
+    }
 
-  useEffect(() => {
-    drawWheel();
-  }, [angle]);
+    animationFrame = requestAnimationFrame(animate);
 
-  useEffect(() => {
-    const timeout = setTimeout(calculateResult, 4000); // Calculate result after the spinning animation completes
-    return () => clearTimeout(timeout);
-  }, [angle]);
+    return () => cancelAnimationFrame(animationFrame);
+  }, [assignedNumber]);
 
   return (
-    <div style={{ position: 'relative', display: 'inline-block' }}>
-      <div style={{ position: 'absolute', top: '-20px', left: '50%', transform: 'translateX(-50%)' }}>
+    <div
+      style={{
+        position: 'relative',
+        width: '95vw',
+        maxWidth: 400,
+        margin: 'auto',
+      }}
+    >
+      <div
+        style={{
+          position: 'absolute',
+          top: -28,
+          left: '50%',
+          transform: 'translateX(-50%)',
+          fontSize: 28,
+          color: 'black',
+          userSelect: 'none',
+          pointerEvents: 'none',
+          zIndex: 10,
+        }}
+      >
         ▼
       </div>
       <canvas
         ref={canvasRef}
-        width="300"
-        height="300"
-        style={{ transform: `rotate(${angle}deg)` }}
-      ></canvas>
-      <button onClick={spinWheel} disabled={segments.length === 0}>
-        Spin
-      </button>
-      {result && <div>Result: {result}</div>}
+        width={400}
+        height={400}
+        style={{
+          width: '100%',
+          height: 'auto',
+          transform: `rotate(${angle}deg)`,
+          transformOrigin: '50% 50%',
+          transition: isSpinning ? 'none' : 'transform 0.3s ease-out',
+          border: '2px solid #ccc',
+          background: 'white',
+          borderRadius: '50%',
+        }}
+      />
+      {result && (
+        <div
+          style={{
+            marginTop: 12,
+            color: 'green',
+            fontWeight: 'bold',
+            fontSize: 30,
+          }}
+        >
+          You won: {result}
+        </div>
+      )}
     </div>
   );
 }

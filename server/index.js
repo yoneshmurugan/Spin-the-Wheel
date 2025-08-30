@@ -1,14 +1,14 @@
-// server/index.js
-const express = require('express');
-const bodyParser = require('body-parser');
-const cors = require('cors');
-const { PrismaClient } = require('@prisma/client');
+
+import express from 'express';
+import { PrismaClient } from '@prisma/client';
+import bodyParser from 'body-parser';
+import cors from 'cors';
 
 const app = express();
 const prisma = new PrismaClient();
 
 app.use(cors({
-  origin: 'http://localhost:3001', // allow requests from your frontend
+  origin: 'http://localhost:3000', // Adjust to match your frontend port (changed from 3001)
 }));
 app.use(bodyParser.json());
 
@@ -16,35 +16,47 @@ app.get('/', (req, res) => {
   res.send('Server is running');
 });
 
-app.post('/api/save', async (req, res) => {
-  const { segments, result } = req.body;
+// POST route for spinning the wheel: captures name/email, assigns unique number, enforces no repeats
+app.post('/api/spin', async (req, res) => {
+  const { userName, userEmail } = req.body;
 
-  if (!segments || !result) {
-    console.error('Invalid data:', req.body);
-    return res.status(400).json({ message: 'Invalid data' });
+  if (!userName || !userEmail) {
+    return res.status(400).json({ message: 'Name and email are required' });
   }
 
-  console.log('Received data:', req.body); // Log the received data
-
   try {
-    await prisma.spin.create({
-      data: {
-        segments,
-        result,
-      },
+    // Check if the user has already spun (using email as unique identifier)
+    const existing = await prisma.spinResult.findFirst({ where: { userEmail } });
+    if (existing && existing.userName) {
+      return res.status(409).json({ message: 'You already spun the wheel.', number: existing.segment });
+    }
+
+    // Fetch unallocated numbers (where userName is empty)
+    const unallocated = await prisma.spinResult.findMany({ where: { userName: '' } });
+    if (unallocated.length === 0) {
+      return res.status(410).json({ message: 'All numbers have been allocated.' });
+    }
+
+    // Pick a random unallocated number
+    const chosen = unallocated[Math.floor(Math.random() * unallocated.length)];
+
+    // Update the record with user details
+    await prisma.spinResult.update({
+      where: { id: chosen.id },
+      data: { userName, userEmail },
     });
-    res.status(200).json({ message: 'Data inserted successfully' });
+
+    res.json({ number: chosen.segment });
   } catch (error) {
-    console.error('Error inserting data: ', error);
-    res.status(500).json({ message: 'Error inserting data' });
+    console.error('Error processing spin:', error);
+    res.status(500).json({ message: 'Server error.' });
   }
 });
 
-
-// Test route to check database connection
-app.get('/test-db', async (req, res) => {
+// GET route to fetch all spin results (for admin/testing)
+app.get('/api/spins', async (req, res) => {
   try {
-    const spins = await prisma.spin.findMany();
+    const spins = await prisma.spinResult.findMany();
     res.status(200).json(spins);
   } catch (error) {
     console.error('Database connection error:', error);
@@ -52,7 +64,7 @@ app.get('/test-db', async (req, res) => {
   }
 });
 
-const port = 3000; // Change the port number here
+const port = 3000; // Kept the same, but can be changed if needed
 app.listen(port, () => {
   console.log(`Server running on port ${port}`);
 });

@@ -8,10 +8,10 @@ datasource db {
 }
 
 
-model Spin {
+model SpinResult {
   id        Int      @id @default(autoincrement())
-  segments  String
-  result    String
-  createdAt DateTime @default(now())
+  segment   Int      // Assuming you already changed to Int as per previous steps
+  userName  String
+  userEmail String?  @unique  // Now nullable with ?
+  timestamp DateTime @default(now())
 }
-
